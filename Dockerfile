@@ -31,10 +31,20 @@ FROM --platform=$BUILDPLATFORM tonistiigi/xx AS xx
 # Get UPX (statically linked).
 FROM --platform=$BUILDPLATFORM alpine:3.20 AS upx
 ARG UPX_VERSION=4.2.4
-RUN apk --no-cache add curl && \
-    mkdir /tmp/upx && \
-    curl -# -L https://github.com/upx/upx/releases/download/v${UPX_VERSION}/upx-${UPX_VERSION}-amd64_linux.tar.xz | tar xJ --strip 1 -C /tmp/upx && \
-    cp -v /tmp/upx/upx /usr/bin/upx
+RUN \
+    if echo "${UPX_VERSION}" | grep -q '^[0-9]\+\.[0-9]\+\.[0-9]\+$'; then \
+        apk --no-cache add curl && \
+        mkdir /tmp/upx && \
+        curl -# -L https://github.com/upx/upx/releases/download/v${UPX_VERSION}/upx-${UPX_VERSION}-amd64_linux.tar.xz | tar xJ --strip 1 -C /tmp/upx && \
+        cp -v /tmp/upx/upx /usr/bin/upx; \
+    else \
+        apk --no-cache add build-base cmake clang git && \
+        git clone https://github.com/upx/upx.git && \
+        git -C upx reset --hard ${UPX_VERSION} && \
+        git -C upx submodule update --init && \
+        make -C upx build/extra/gcc/all CC="clang" CXX="clang++" CFLAGS="-static" CXXFLAGS="-static" LDFLAGS="-Wl,--strip-all" && \
+        cp -v upx/build/extra/gcc/release/upx /usr/bin/upx; \
+    fi
 
 # Build TigerVNC server.
 FROM --platform=$BUILDPLATFORM alpine:3.20 AS tigervnc
@@ -112,7 +122,7 @@ FROM --platform=$BUILDPLATFORM alpine:3.20 AS xdpyprobe
 ARG TARGETPLATFORM
 COPY --from=xx / /
 COPY src/xdpyprobe /tmp/xdpyprobe
-RUN apk --no-cache add make clang
+RUN apk --no-cache add make clang lld
 RUN xx-apk --no-cache add gcc musl-dev libx11-dev libx11-static libxcb-static
 RUN CC=xx-clang \
     make -C /tmp/xdpyprobe
